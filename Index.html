@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>مساعد الدامة الخارق المتطور</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cairo&display=swap');
+  body {
+    font-family: 'Cairo', sans-serif;
+    background: linear-gradient(135deg, #283e51, #485563);
+    color: #f0f0f0;
+    margin: 0; padding: 20px;
+    user-select: none;
+  }
+  h1 {
+    margin-bottom: 15px;
+    font-weight: 700;
+    text-shadow: 0 0 8px #ffa500;
+    text-align: center;
+  }
+  #board {
+    display: grid;
+    grid-template-columns: repeat(8, 60px);
+    grid-template-rows: repeat(8, 60px);
+    margin: 20px auto;
+    box-shadow: 0 0 15px rgba(0,0,0,0.7);
+    border-radius: 12px;
+  }
+  .cell {
+    width: 60px; height: 60px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 32px;
+    cursor: pointer;
+    position: relative;
+    transition: background-color 0.3s ease;
+    border-radius: 6px;
+    user-select: none;
+  }
+  .white {
+    background-color: #f8f8f8;
+    color: #222;
+  }
+  .black {
+    background-color: #3a3a3a;
+    color: #f8f8f8;
+  }
+  .cell.highlight-from {
+    background-color: #32cd32 !important;
+    color: #fff !important;
+  }
+  .cell.highlight-to {
+    background-color: #ffa500 !important;
+    color: #fff !important;
+  }
+  .arrow {
+    position: absolute;
+    top: 5px; left: 5px; right: 5px; bottom: 5px;
+    border: 3px solid rgba(255, 255, 0, 0.7);
+    border-radius: 50%;
+    pointer-events: none;
+    box-shadow: 0 0 15px rgba(255, 255, 0, 0.9);
+    animation: pulse 1.5s infinite ease-in-out;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 15px rgba(255, 255, 0, 0.9); }
+    50% { box-shadow: 0 0 30px rgba(255, 255, 0, 1); }
+  }
+  select, button {
+    padding: 10px 16px;
+    font-size: 18px;
+    margin: 10px 6px;
+    border-radius: 8px;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    font-weight: 600;
+    box-shadow: 0 0 8px rgba(0,0,0,0.3);
+    transition: background-color 0.25s ease;
+  }
+  select {
+    background-color: #333;
+    color: #fff;
+  }
+  select:hover {
+    background-color: #444;
+  }
+  button {
+    background-color: #ffa500;
+    color: #fff;
+  }
+  button:hover {
+    background-color: #ffb933;
+  }
+  #info {
+    margin-top: 22px;
+    font-size: 20px;
+    font-weight: 700;
+    min-height: 30px;
+    text-shadow: 0 0 5px #000;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<h1>🧠 مساعد الدامة الخارق المتطور</h1>
+
+<div style="text-align:center;">
+  <label for="pieceSelector">اختر القطعة (للتعيين السريع):</label>
+  <select id="pieceSelector" aria-label="اختر القطعة">
+    <option value="">فراغ</option>
+    <option value="●">أسود</option>
+    <option value="○">أبيض</option>
+    <option value="⬤">ملك أسود</option>
+    <option value="⚪">ملك أبيض</option>
+  </select>
+
+  <label for="currentPlayer">من يلعب الآن:</label>
+  <select id="currentPlayer" aria-label="من يلعب الآن">
+    <option value="black" selected>أسود</option>
+    <option value="white">أبيض</option>
+  </select>
+
+  <button id="analyzeBtn">🔍 تحليل الحركة الأفضل</button>
+</div>
+
+<div id="board" role="grid" aria-label="لوحة الدامة"></div>
+
+<div id="info" role="alert" aria-live="polite"></div>
+
+<script>
+  const board = document.getElementById("board");
+  const info = document.getElementById("info");
+  const pieceSelector = document.getElementById("pieceSelector");
+  const currentPlayerSelect = document.getElementById("currentPlayer");
+  const analyzeBtn = document.getElementById("analyzeBtn");
+
+  const SIZE = 8;
+  let state = new Array(SIZE*SIZE).fill("");
+  const cells = [];
+
+  // إنشاء اللوحة
+  for(let i=0; i<SIZE*SIZE; i++){
+    const cell = document.createElement("div");
+    cell.className = "cell " + (((Math.floor(i/SIZE) + i) % 2 === 0) ? "white" : "black");
+    cell.dataset.index = i;
+    cell.draggable = false;
+
+    cell.addEventListener("click", () => {
+      const piece = pieceSelector.value;
+      cell.textContent = piece;
+      state[i] = piece;
+      clearHighlights();
+      clearArrows();
+      info.textContent = "";
+    });
+
+    // دعم السحب والإفلات
+    cell.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData("text/plain", i);
+      const crt = document.createElement("div");
+      crt.style.fontSize = "40px";
+      crt.style.color = cell.style.color;
+      crt.style.position = "absolute";
+      crt.style.top = "-1000px";
+      crt.textContent = cell.textContent;
+      document.body.appendChild(crt);
+      e.dataTransfer.setDragImage(crt, 30, 30);
+      setTimeout(() => document.body.removeChild(crt), 0);
+    });
+
+    cell.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      cell.style.outline = "3px solid #ffa500";
+    });
+    cell.addEventListener("dragleave", (e) => {
+      cell.style.outline = "";
+    });
+
+    cell.addEventListener("drop", (e) => {
+      e.preventDefault();
+      cell.style.outline = "";
+      const fromIndex = parseInt(e.dataTransfer.getData("text/plain"));
+      const toIndex = i;
+
+      if(fromIndex === toIndex) return;
+
+      const piece = state[fromIndex];
+      state[toIndex] = piece;
+      state[fromIndex] = "";
+      cells[toIndex].textContent = piece;
+      cells[fromIndex].textContent = "";
+
+      clearHighlights();
+      clearArrows();
+      info.textContent = "";
+    });
+
+    board.appendChild(cell);
+    cells.push(cell);
+  }
+
+  function clearHighlights(){
+    cells.forEach(c => {
+      c.classList.remove("highlight-from");
+      c.classList.remove("highlight-to");
+    });
+  }
+  function clearArrows(){
+    document.querySelectorAll(".arrow").forEach(el => el.remove());
+  }
+
+  // دوال الذكاء الاصطناعي (Minimax + Alpha-Beta + دعم ضربات متسلسلة)
+
+  function evaluateBoard(boardState){
+    const pieceValue = {
+      "●": -5,
+      "⬤": -10,
+      "○": 5,
+      "⚪": 10,
+      "": 0
+    };
+    const positionValue = [
+      0,  4,  0,  4,  0,  4,  0,  4,
+      4,  0,  3,  0,  3,  0,  3,  0,
+      0,  3,  0,  2,  0,  2,  0,  4,
+      4,  0,  2,  0,  1,  0,  3,  0,
+      0,  3,  0,  1,  0,  2,  0,  4,
+      4,  0,  2,  0,  2,  0,  3,  0,
+      0,  3,  0,  3,  0,  3,  0,  4,
+      4,  0,  4,  0,  4,  0,  4,  0,
+    ];
+    let score = 0;
+    for(let i=0; i<boardState.length; i++){
+      const p = boardState[i];
+      if(p){
+        score += pieceValue[p] + (pieceValue[p] > 0 ? positionValue[i] : -positionValue[i]);
+      }
+    }
+    const blackMovesCount = countAllMoves(boardState, true).length;
+    const whiteMovesCount = countAllMoves(boardState, false).length;
+    score += (whiteMovesCount - blackMovesCount) * 0.5;
+    return score;
+  }
+
+  function countAllMoves(boardState, isBlack){
+    const pieces = isBlack ? ["●", "⬤"] : ["○", "⚪"];
+    let moves = [];
+    for(let i=0; i<boardState.length; i++){
+      if(pieces.includes(boardState[i])){
+        moves.push(...getAllJumps(i, boardState[i], boardState));
+        if(moves.length === 0){
+          moves.push(...getNormalMoves(i, boardState[i], boardState));
+        }
+      }
+    }
+    return moves;
+  }
+
+  function getAllJumps(pos, piece, boardState, visited = [], chain = []){
+    let jumps = [];
+    let row = Math.floor(pos/8);
+    let col = pos % 8;
+    const directions = [];
+
+    if(piece === "●"){
+      directions.push([1, -1], [1, 1]);
+    } else if(piece === "○"){
+      directions.push([-1, -1], [-1, 1]);
+    } else {
+      directions.push([1, -1], [1, 1], [-1, -1], [-1, 1]);
+    }
+
+    let hasJump = false;
+    for(const [dr, dc] of directions){
+      const midR = row+dr;
+      const midC = col+dc;
+      const landingR = row + 2*dr;
+      const landingC = col + 2*dc;
+
+      if(landingR >=0 && landingR<8 && landingC>=0 && landingC<8 && midR>=0 && midR<8 && midC>=0 && midC<8){
+        const midPos = midR*8 + midC;
+        const landPos = landingR*8 + landingC;
+
+        const midPiece = boardState[midPos];
+        const landPiece = boardState[landPos];
+
+        if(midPiece !== "" && midPiece !== piece && landPiece === ""){
+          if(!visited.includes(landPos)){
+            hasJump = true;
+            const newChain = chain.concat([{from: pos, to: landPos, capture: midPos}]);
+            const newVisited = visited.concat([pos]);
+            const furtherJumps = getAllJumps(landPos, piece, makeMoveChain(boardState, newChain), newVisited, newChain);
+            if(furtherJumps.length > 0) {
+              jumps.push(...furtherJumps);
+            } else {
+              jumps.push(newChain);
+            }
+          }
+        }
+      }
+    }
+    return hasJump ? jumps : [];
+  }
+
+  function makeMoveChain(boardState, movesChain){
+    let newState = boardState.slice();
+    for(let m of movesChain){
+      newState[m.to] = newState[m.from];
+      newState[m.from] = "";
+      if(m.capture !== undefined) newState[m.capture] = "";
+    }
+    const lastMove = movesChain[movesChain.length-1];
+    const toRow = Math.floor(lastMove.to/8);
+    if(newState[lastMove.to] === "●" && toRow === 7) newState[lastMove.to] = "⬤";
+    if(newState[lastMove.to] === "○" && toRow === 0) newState[lastMove.to] = "⚪";
+    return newState;
+  }
+
+  function getNormalMoves(pos, piece, boardState){
+    let moves = [];
+    const row = Math.floor(pos / 8);
+    const col = pos % 8;
+    const directions = [];
+
+    if(piece === "●"){
+      directions.push([1, -1], [1, 1]);
+    } else if(piece === "○"){
+      directions.push([-1, -1], [-1, 1]);
+    } else {
+      directions.push([1, -1], [1, 1], [-1, -1], [-1, 1]);
+    }
+
+    for(const [dr, dc] of directions){
+      const r1 = row + dr;
+      const c1 = col + dc;
+      const pos1 = r1*8 + c1;
+      if(r1>=0 && r1<8 && c1>=0 && c1<8 && boardState[pos1] === ""){
+        moves.push({from: pos, to: pos1, capture: null});
+      }
+    }
+    return moves;
+  }
+
+  function makeMove(boardState, move){
+    let newState = boardState.slice();
+    newState[move.to] = newState[move.from];
+    newState[move.from] = "";
+    if(move.capture !== null && move.capture !== undefined){
+      newState[move.capture] = "";
+    }
+    // ترقية
+    const toRow = Math.floor(move.to / 8);
+    if(newState[move.to] === "●" && toRow === 7) newState[move.to] = "⬤";
+    if(newState[move.to] === "○" && toRow === 0) newState[move.to] = "⚪";
+    return newState;
+  }
+
+  function minimax(boardState, depth, maximizingPlayer, alpha, beta){
+    if(depth === 0){
+      return {score: evaluateBoard(boardState)};
+    }
+
+    const playerPieces = maximizingPlayer ? ["○","⚪"] : ["●","⬤"];
+    let allMoves = [];
+
+    for(let i=0; i<boardState.length; i++){
+      if(playerPieces.includes(boardState[i])){
+        let jumps = getAllJumps(i, boardState[i], boardState);
+        if(jumps.length > 0){
+          jumps.forEach(chain => {
+            allMoves.push({chain});
+          });
+        }
+      }
+    }
+
+    if(allMoves.length === 0){
+      for(let i=0; i<boardState.length; i++){
+        if(playerPieces.includes(boardState[i])){
+          const moves = getNormalMoves(i, boardState[i], boardState);
+          moves.forEach(m => allMoves.push({move: m}));
+        }
+      }
+    }
+
+    if(allMoves.length === 0){
+      return {score: maximizingPlayer ? -9999 : 9999};
+    }
+
+    if(maximizingPlayer){
+      let maxEval = -Infinity;
+      let bestMove = null;
+      for(let m of allMoves){
+        let newBoard;
+        if(m.chain){
+          newBoard = makeMoveChain(boardState, m.chain);
+        } else {
+          newBoard = makeMove(boardState, m.move);
+        }
+        const evalResult = minimax(newBoard, depth-1, false, alpha, beta);
+        if(evalResult.score > maxEval){
+          maxEval = evalResult.score;
+          bestMove = m;
+        }
+        alpha = Math.max(alpha, evalResult.score);
+        if(beta <= alpha) break;
+      }
+      return {score: maxEval, bestMove};
+    } else {
+      let minEval = Infinity;
+      let bestMove = null;
+      for(let m of allMoves){
+        let newBoard;
+        if(m.chain){
+          newBoard = makeMoveChain(boardState, m.chain);
+        } else {
+          newBoard = makeMove(boardState, m.move);
+        }
+        const evalResult = minimax(newBoard, depth-1, true, alpha, beta);
+        if(evalResult.score < minEval){
+          minEval = evalResult.score;
+          bestMove = m;
+        }
+        beta = Math.min(beta, evalResult.score);
+        if(beta <= alpha) break;
+      }
+      return {score: minEval, bestMove};
+    }
+  }
+
+  function highlightMove(moveObj){
+    clearHighlights();
+    clearArrows();
+
+    if(!moveObj) return;
+
+    if(moveObj.chain){
+      const firstFrom = moveObj.chain[0].from;
+      const lastTo = moveObj.chain[moveObj.chain.length-1].to;
+      cells[firstFrom].classList.add("highlight-from");
+      cells[lastTo].classList.add("highlight-to");
+      const arrow = document.createElement("div");
+      arrow.className = "arrow";
+      cells[lastTo].appendChild(arrow);
+    } else if(moveObj.move){
+      cells[moveObj.move.from].classList.add("highlight-from");
+      cells[moveObj.move.to].classList.add("highlight-to");
+      const arrow = document.createElement("div");
+      arrow.className = "arrow";
+      cells[moveObj.move.to].appendChild(arrow);
+    }
+  }
+
+  analyzeBtn.onclick = () => {
+    info.textContent = "⏳ جاري حساب أفضل حركة ...";
+    clearHighlights();
+    clearArrows();
+
+    const currentPlayer = currentPlayerSelect.value === "black" ? false : true;
+
+    setTimeout(() => {
+      const result = minimax(state, 5, currentPlayer, -Infinity, Infinity);
+
+      if(result.bestMove){
+        highlightMove(result.bestMove);
+        info.textContent = "أفضل حركة مقترحة تم
